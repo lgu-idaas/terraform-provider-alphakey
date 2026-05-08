@@ -1,0 +1,25 @@
+# Binary
+terraform-provider-alphakey
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.test
+cover.out
+
+# Terraform
+.terraform/
+terraform.tfstate*
+.terraform.lock.hcl
+
+# Build artifacts
+dist/
+reference/
