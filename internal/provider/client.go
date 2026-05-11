@@ -62,16 +62,17 @@ func (c *AlphaKeyClient) buildURL(path string) string {
 }
 
 // maskToken masks the API token for safe logging.
-// Shows first 4 and last 4 characters, masks the rest.
+// Shows first 4 characters only, masks the rest entirely.
 func maskToken(token string) string {
-	if len(token) <= 8 {
+	if len(token) <= 4 {
 		return "****"
 	}
-	return token[:4] + "****" + token[len(token)-4:]
+	return token[:4] + "****..."
 }
 
 // DoRequest performs a common HTTP request to the AlphaKey API.
-// It handles JSON serialization, header injection, logging, and response parsing.
+// It handles JSON serialization, header injection, logging, response parsing,
+// and retries with exponential backoff for retryable errors (max 3 retries).
 func (c *AlphaKeyClient) DoRequest(ctx context.Context, method, path string, body interface{}) (*APIResponse, error) {
 	fullURL := c.buildURL(path)
 
@@ -84,7 +85,6 @@ func (c *AlphaKeyClient) DoRequest(ctx context.Context, method, path string, bod
 		if err != nil {
 			return nil, fmt.Errorf("요청 본문 JSON 직렬화 실패: %w", err)
 		}
-		reqBody = bytes.NewReader(bodyBytes)
 	}
 
 	// Log the request (mask token)
@@ -95,93 +95,133 @@ func (c *AlphaKeyClient) DoRequest(ctx context.Context, method, path string, bod
 		"token":  maskToken(c.APIToken),
 	})
 
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP 요청 생성 실패: %w", err)
-	}
+	const maxRetries = 3
+	baseDelay := 1 * time.Second
 
-	// Set required headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.APIToken)
+	var lastErr error
 
-	// Execute the request
-	startTime := time.Now()
-	resp, err := c.HTTPClient.Do(req)
-	elapsed := time.Since(startTime)
-
-	if err != nil {
-		// Check for timeout errors
-		if ctx.Err() != nil || isTimeoutError(err) {
-			tflog.Error(ctx, "AlphaKey API 타임아웃", map[string]interface{}{
-				"method":  method,
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s
+			delay := baseDelay * (1 << (attempt - 1))
+			tflog.Debug(ctx, "AlphaKey API 재시도", map[string]interface{}{
+				"attempt": attempt,
+				"delay":   delay.String(),
 				"url":     fullURL,
-				"elapsed": elapsed.String(),
-				"error":   err.Error(),
 			})
-			return nil, &APIError{
-				HTTPStatus: 0,
-				Code:       "TIMEOUT",
-				Message:    fmt.Sprintf("네트워크 연결 시간이 초과되었습니다 (%s): %s", elapsed.Round(time.Millisecond), err.Error()),
-				Retryable:  true,
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
 			}
 		}
-		tflog.Error(ctx, "AlphaKey API 네트워크 오류", map[string]interface{}{
-			"method": method,
-			"url":    fullURL,
-			"error":  err.Error(),
-		})
-		return nil, &APIError{
-			HTTPStatus: 0,
-			Code:       "NETWORK_ERROR",
-			Message:    fmt.Sprintf("네트워크 연결 실패: %s", err.Error()),
-			Retryable:  true,
+
+		// Reset reader for each attempt
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		} else {
+			reqBody = nil
 		}
-	}
-	defer resp.Body.Close()
 
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("응답 본문 읽기 실패: %w", err)
-	}
-
-	// Log the response
-	tflog.Debug(ctx, "AlphaKey API 응답", map[string]interface{}{
-		"method":      method,
-		"url":         fullURL,
-		"status_code": resp.StatusCode,
-		"elapsed":     elapsed.String(),
-		"body":        string(respBody),
-	})
-
-	// Handle HTTP-level errors
-	if resp.StatusCode != http.StatusOK {
-		return nil, handleHTTPError(resp.StatusCode, respBody)
-	}
-
-	// Parse the JSON response
-	var apiResp APIResponse
-	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return nil, fmt.Errorf("응답 JSON 파싱 실패: %w (body: %s)", err, string(respBody))
-	}
-
-	// Check API-level error (code != "200")
-	if apiResp.Code != "200" {
-		tflog.Error(ctx, "AlphaKey API 비즈니스 오류", map[string]interface{}{
-			"method": method,
-			"url":    fullURL,
-			"code":   apiResp.Code,
-			"msg":    apiResp.Msg,
-		})
-		return nil, &APIError{
-			HTTPStatus: resp.StatusCode,
-			Code:       apiResp.Code,
-			Message:    apiResp.Msg,
-			Retryable:  false,
+		req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("HTTP 요청 생성 실패: %w", err)
 		}
+
+		// Set required headers
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.APIToken)
+
+		// Execute the request
+		startTime := time.Now()
+		resp, err := c.HTTPClient.Do(req)
+		elapsed := time.Since(startTime)
+
+		if err != nil {
+			// Check for timeout errors
+			if ctx.Err() != nil || isTimeoutError(err) {
+				tflog.Error(ctx, "AlphaKey API 타임아웃", map[string]interface{}{
+					"method":  method,
+					"url":     fullURL,
+					"elapsed": elapsed.String(),
+					"error":   err.Error(),
+				})
+				lastErr = &APIError{
+					HTTPStatus: 0,
+					Code:       "TIMEOUT",
+					Message:    fmt.Sprintf("네트워크 연결 시간이 초과되었습니다 (%s): %s", elapsed.Round(time.Millisecond), err.Error()),
+					Retryable:  true,
+				}
+				continue // retry
+			}
+			tflog.Error(ctx, "AlphaKey API 네트워크 오류", map[string]interface{}{
+				"method": method,
+				"url":    fullURL,
+				"error":  err.Error(),
+			})
+			lastErr = &APIError{
+				HTTPStatus: 0,
+				Code:       "NETWORK_ERROR",
+				Message:    fmt.Sprintf("네트워크 연결 실패: %s", err.Error()),
+				Retryable:  true,
+			}
+			continue // retry
+		}
+
+		// Read response body
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("응답 본문 읽기 실패: %w", err)
+		}
+
+		// Log the response
+		tflog.Debug(ctx, "AlphaKey API 응답", map[string]interface{}{
+			"method":      method,
+			"url":         fullURL,
+			"status_code": resp.StatusCode,
+			"elapsed":     elapsed.String(),
+			"body":        string(respBody),
+		})
+
+		// Check if HTTP status is retryable (429 or 5xx)
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			lastErr = handleHTTPError(resp.StatusCode, respBody)
+			continue // retry
+		}
+
+		// Handle HTTP-level errors (non-retryable)
+		if resp.StatusCode != http.StatusOK {
+			return nil, handleHTTPError(resp.StatusCode, respBody)
+		}
+
+		// Parse the JSON response
+		var apiResp APIResponse
+		if err := json.Unmarshal(respBody, &apiResp); err != nil {
+			return nil, fmt.Errorf("응답 JSON 파싱 실패: %w (body: %s)", err, string(respBody))
+		}
+
+		// Check API-level error (code != "200")
+		if apiResp.Code != "200" {
+			tflog.Error(ctx, "AlphaKey API 비즈니스 오류", map[string]interface{}{
+				"method": method,
+				"url":    fullURL,
+				"code":   apiResp.Code,
+				"msg":    apiResp.Msg,
+			})
+			return nil, &APIError{
+				HTTPStatus: resp.StatusCode,
+				Code:       apiResp.Code,
+				Message:    apiResp.Msg,
+				Retryable:  false,
+			}
+		}
+
+		return &apiResp, nil
 	}
 
-	return &apiResp, nil
+	// All retries exhausted
+	return nil, lastErr
 }
 
 // Post performs a POST request to the AlphaKey API.

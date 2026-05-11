@@ -305,8 +305,24 @@ func (r *UserResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		"userId": state.ID.ValueString(),
 	}
 
-	// First, revoke ID (ignore error if already revoked)
-	_, _ = r.client.Post(ctx, "/iam/v1/user/id/revoke", body)
+	// First, revoke ID (only ignore "already revoked" errors)
+	_, revokeErr := r.client.Post(ctx, "/iam/v1/user/id/revoke", body)
+	if revokeErr != nil {
+		if apiErr, ok := revokeErr.(*APIError); ok {
+			// E1040606: ID already revoked or similar — safe to ignore
+			if apiErr.Code != "E1040606" {
+				resp.Diagnostics.AddWarning(
+					"사용자 ID 회수 중 오류 발생",
+					"사용자 삭제를 계속 진행합니다: "+apiErr.Error(),
+				)
+			}
+		} else {
+			resp.Diagnostics.AddWarning(
+				"사용자 ID 회수 중 오류 발생",
+				"사용자 삭제를 계속 진행합니다: "+revokeErr.Error(),
+			)
+		}
+	}
 
 	// Then, delete user
 	_, err := r.client.Post(ctx, "/iam/v1/user/delete", body)

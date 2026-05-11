@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"os"
 	"time"
@@ -29,6 +30,7 @@ type AlphaKeyProviderModel struct {
 	BaseURL        types.String `tfsdk:"base_url"`
 	APIToken       types.String `tfsdk:"api_token"`
 	RequestTimeout types.Int64  `tfsdk:"request_timeout"`
+	Insecure       types.Bool   `tfsdk:"insecure"`
 }
 
 // New returns a new provider factory function.
@@ -60,6 +62,10 @@ func (p *AlphaKeyProvider) Schema(ctx context.Context, req provider.SchemaReques
 			},
 			"request_timeout": schema.Int64Attribute{
 				Description: "HTTP 요청 타임아웃(초). 기본값은 30초입니다.",
+				Optional:    true,
+			},
+			"insecure": schema.BoolAttribute{
+				Description: "TLS 인증서 검증을 건너뜁니다. 개발/테스트 환경에서만 사용하세요. 기본값은 false입니다.",
 				Optional:    true,
 			},
 		},
@@ -116,12 +122,27 @@ func (p *AlphaKeyProvider) Configure(ctx context.Context, req provider.Configure
 		timeout = config.RequestTimeout.ValueInt64()
 	}
 
+	// Determine insecure TLS setting
+	insecure := false
+	if !config.Insecure.IsNull() && !config.Insecure.IsUnknown() {
+		insecure = config.Insecure.ValueBool()
+	}
+
+	// Create HTTP transport with optional TLS skip verify
+	transport := &http.Transport{}
+	if insecure {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // User explicitly opted in
+		}
+	}
+
 	// Create AlphaKeyClient instance
 	client := &AlphaKeyClient{
 		BaseURL:  baseURL,
 		APIToken: apiToken,
 		HTTPClient: &http.Client{
-			Timeout: time.Duration(timeout) * time.Second,
+			Timeout:   time.Duration(timeout) * time.Second,
+			Transport: transport,
 		},
 	}
 

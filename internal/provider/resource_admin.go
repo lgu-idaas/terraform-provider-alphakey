@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"sort"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -105,9 +106,12 @@ func (r *AdminResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	// Use first user_id as resource ID
+	// Use sorted first user_id as resource ID for deterministic ordering
 	if len(userIDs) > 0 {
-		plan.ID = types.StringValue(userIDs[0])
+		sorted := make([]string, len(userIDs))
+		copy(sorted, userIDs)
+		sort.Strings(sorted)
+		plan.ID = types.StringValue(sorted[0])
 	} else {
 		plan.ID = types.StringValue("admin")
 	}
@@ -122,7 +126,46 @@ func (r *AdminResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
-	// Admin resource is write-only; preserve state as-is
+	// Query admin list to verify managed admins still exist
+	userIDs := extractStringSet(ctx, state.UserIDs)
+	existingIDs := make([]string, 0, len(userIDs))
+
+	for _, uid := range userIDs {
+		body := map[string]interface{}{
+			"adminId": uid,
+		}
+		_, err := r.client.Post(ctx, "/iam/v1/settings/admin/detail", body)
+		if err != nil {
+			if HandleNotFound(err) {
+				// This admin no longer exists, skip it
+				continue
+			}
+			// For other errors, report but don't fail the whole read
+			if apiErr, ok := err.(*APIError); ok {
+				resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
+			} else {
+				resp.Diagnostics.AddError("관리자 조회 실패", err.Error())
+			}
+			return
+		}
+		existingIDs = append(existingIDs, uid)
+	}
+
+	// If no admins exist anymore, remove the resource from state
+	if len(existingIDs) == 0 {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	// Update state with only existing admin IDs
+	state.UserIDs = buildStringSet(ctx, existingIDs)
+
+	// Update ID based on sorted existing IDs
+	sorted := make([]string, len(existingIDs))
+	copy(sorted, existingIDs)
+	sort.Strings(sorted)
+	state.ID = types.StringValue(sorted[0])
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -135,34 +178,80 @@ func (r *AdminResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	// Remove old admins
 	oldIDs := extractStringSet(ctx, state.UserIDs)
-	if len(oldIDs) > 0 {
-		deleteBody := map[string]interface{}{
-			"userIds": oldIDs,
-		}
-		_, _ = r.client.Post(ctx, "/iam/v1/settings/normaladmin/delete", deleteBody)
-	}
-
-	// Add new admins
 	newIDs := extractStringSet(ctx, plan.UserIDs)
-	body := map[string]interface{}{
-		"userIds":      newIDs,
-		"validateFrom": plan.ValidateFrom.ValueString(),
-		"validateTo":   plan.ValidateTo.ValueString(),
-	}
 
-	_, err := r.client.Post(ctx, "/iam/v1/settings/normaladmin/add", body)
-	if err != nil {
-		if apiErr, ok := err.(*APIError); ok {
-			resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
-		} else {
-			resp.Diagnostics.AddError("관리자 추가 실패", err.Error())
+	toAdd, toRemove := diffSets(oldIDs, newIDs)
+
+	// Remove only the users that are no longer in the set
+	if len(toRemove) > 0 {
+		deleteBody := map[string]interface{}{
+			"userIds": toRemove,
 		}
-		return
+		_, err := r.client.Post(ctx, "/iam/v1/settings/normaladmin/delete", deleteBody)
+		if err != nil {
+			// Only ignore "not found" errors (admin already removed)
+			if !HandleNotFound(err) {
+				if apiErr, ok := err.(*APIError); ok {
+					resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
+				} else {
+					resp.Diagnostics.AddError("관리자 삭제 실패", err.Error())
+				}
+				return
+			}
+		}
 	}
 
-	plan.ID = state.ID
+	// Add only the new users
+	if len(toAdd) > 0 {
+		addBody := map[string]interface{}{
+			"userIds":      toAdd,
+			"validateFrom": plan.ValidateFrom.ValueString(),
+			"validateTo":   plan.ValidateTo.ValueString(),
+		}
+		_, err := r.client.Post(ctx, "/iam/v1/settings/normaladmin/add", addBody)
+		if err != nil {
+			if apiErr, ok := err.(*APIError); ok {
+				resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
+			} else {
+				resp.Diagnostics.AddError("관리자 추가 실패", err.Error())
+			}
+			return
+		}
+	}
+
+	// If validate dates changed but no user changes, update all existing users
+	if len(toAdd) == 0 && len(toRemove) == 0 {
+		if state.ValidateFrom.ValueString() != plan.ValidateFrom.ValueString() ||
+			state.ValidateTo.ValueString() != plan.ValidateTo.ValueString() {
+			// Re-add all users with new dates (API overwrites dates)
+			body := map[string]interface{}{
+				"userIds":      newIDs,
+				"validateFrom": plan.ValidateFrom.ValueString(),
+				"validateTo":   plan.ValidateTo.ValueString(),
+			}
+			_, err := r.client.Post(ctx, "/iam/v1/settings/normaladmin/add", body)
+			if err != nil {
+				if apiErr, ok := err.(*APIError); ok {
+					resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
+				} else {
+					resp.Diagnostics.AddError("관리자 업데이트 실패", err.Error())
+				}
+				return
+			}
+		}
+	}
+
+	// Update ID based on sorted new IDs
+	sorted := make([]string, len(newIDs))
+	copy(sorted, newIDs)
+	sort.Strings(sorted)
+	if len(sorted) > 0 {
+		plan.ID = types.StringValue(sorted[0])
+	} else {
+		plan.ID = state.ID
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

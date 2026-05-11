@@ -260,7 +260,13 @@ func (r *AppContractResource) Update(ctx context.Context, req resource.UpdateReq
 }
 
 func (r *AppContractResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	// Contract is deleted when the app is deleted; no separate delete API
+	// Contract is deleted when the app is deleted; no separate delete API.
+	// Add a warning so users understand the contract is only removed from Terraform state.
+	resp.Diagnostics.AddWarning(
+		"앱 계약정보는 알파키에서 직접 삭제되지 않습니다",
+		"앱 계약정보는 앱이 삭제될 때 함께 삭제됩니다. "+
+			"이 리소스는 Terraform 상태에서만 제거되며, 알파키 시스템의 계약정보는 유지됩니다.",
+	)
 }
 
 func (r *AppContractResource) buildBody(model *AppContractResourceModel) map[string]interface{} {
