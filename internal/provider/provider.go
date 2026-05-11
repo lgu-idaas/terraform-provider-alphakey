@@ -102,6 +102,9 @@ func (p *AlphaKeyProvider) Configure(ctx context.Context, req provider.Configure
 		apiToken = config.APIToken.ValueString()
 	} else {
 		apiToken = os.Getenv("ALPHAKEY_API_TOKEN")
+		if apiToken == "" {
+			apiToken = os.Getenv("ALPHAKEY_TOKEN") // 하위호환: MCP 서버와 동일 변수명 지원
+		}
 	}
 
 	if apiToken == "" {
