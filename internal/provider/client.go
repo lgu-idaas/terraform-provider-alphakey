@@ -129,8 +129,9 @@ func (c *AlphaKeyClient) DoRequest(ctx context.Context, method, path string, bod
 		}
 
 		// Set required headers
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Authorization", "Bearer "+c.APIToken)
+		req.Header.Set("Accept", "application/json")
 
 		// Execute the request
 		startTime := time.Now()

@@ -124,12 +124,12 @@ func (r *UserGroupResource) Create(ctx context.Context, req resource.CreateReque
 	plan.ID = types.StringValue(respData.UserGroupID)
 	groupID := respData.UserGroupID
 
-	// Add members
+	// Add members (API requires userIds as array)
 	userIDs := extractStringSet(ctx, plan.UserIDs)
-	for _, uid := range userIDs {
+	if len(userIDs) > 0 {
 		memberBody := map[string]interface{}{
 			"userGroupId": groupID,
-			"userId":      uid,
+			"userIds":     userIDs,
 		}
 		_, err := r.client.Post(ctx, "/iam/v1/user/group/member/add", memberBody)
 		if err != nil {
@@ -144,11 +144,10 @@ func (r *UserGroupResource) Create(ctx context.Context, req resource.CreateReque
 
 	// Add officers
 	officerIDs := extractStringSet(ctx, plan.OfficerIDs)
-	for _, oid := range officerIDs {
+	if len(officerIDs) > 0 {
 		officerBody := map[string]interface{}{
 			"userGroupId": groupID,
-			"userId":      oid,
-			"officerYn":   "Y",
+			"userIds":     officerIDs,
 		}
 		_, err := r.client.Post(ctx, "/iam/v1/user/group/member/add", officerBody)
 		if err != nil {

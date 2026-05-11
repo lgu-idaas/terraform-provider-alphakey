@@ -11,10 +11,3 @@ provider "alphakey" {
   base_url  = "https://free1621.alphakey.kr"
   api_token = "AOt991g7gMTtmQ1NqiO-CcdbU7_wrQClX1EUsFhAf1o"
 }
-
-# 사용자 목록 조회 테스트
-data "alphakey_users" "all" {}
-
-output "user_count" {
-  value = length(data.alphakey_users.all.users)
-}
