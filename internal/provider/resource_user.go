@@ -160,14 +160,11 @@ func (r *UserResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 
+	// API returns: userId, userName, deptName, idStateYn (no lastName/firstName/email/mobile)
+	// We only update fields that the API returns; keep plan values for the rest.
 	var respData struct {
 		UserID    string `json:"userId"`
 		DeptName  string `json:"deptName"`
-		DeptID    string `json:"deptId"`
-		LastName  string `json:"lastName"`
-		FirstName string `json:"firstName"`
-		Email     string `json:"email"`
-		Mobile    string `json:"mobile"`
 		IDStateYn string `json:"idStateYn"`
 	}
 	if err := json.Unmarshal(apiResp.Data, &respData); err != nil {
@@ -176,17 +173,14 @@ func (r *UserResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	}
 
 	state.ID = types.StringValue(respData.UserID)
-	state.DeptName = types.StringValue(respData.DeptName)
-	state.LastName = types.StringValue(respData.LastName)
-	state.FirstName = types.StringValue(respData.FirstName)
-	state.Email = types.StringValue(respData.Email)
-	state.Mobile = types.StringValue(respData.Mobile)
-	state.IDStateYn = types.StringValue(respData.IDStateYn)
-	if respData.DeptID != "" {
-		state.DeptID = types.StringValue(respData.DeptID)
-	} else {
-		state.DeptID = types.StringNull()
+	if respData.DeptName != "" {
+		state.DeptName = types.StringValue(respData.DeptName)
 	}
+	if respData.IDStateYn != "" {
+		state.IDStateYn = types.StringValue(respData.IDStateYn)
+	}
+	// lastName, firstName, email, mobile are NOT returned by the detail API
+	// Keep existing state values to prevent unnecessary updates
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -205,14 +199,13 @@ func (r *UserResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		"deptName":  plan.DeptName.ValueString(),
 		"lastName":  plan.LastName.ValueString(),
 		"firstName": plan.FirstName.ValueString(),
-		"email":     plan.Email.ValueString(),
 		"mobile":    plan.Mobile.ValueString(),
 	}
 	if !plan.DeptID.IsNull() && !plan.DeptID.IsUnknown() {
 		body["deptId"] = plan.DeptID.ValueString()
 	}
 
-	_, err := r.client.Post(ctx, "/iam/v1/user/edit", body)
+	_, err := r.client.Post(ctx, "/iam/v1/user/info/update", body)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
 			resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
@@ -226,9 +219,9 @@ func (r *UserResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	oldIDState := state.IDStateYn.ValueString()
 	newIDState := plan.IDStateYn.ValueString()
 	if oldIDState != newIDState {
-		idBody := map[string]interface{}{"userId": state.ID.ValueString()}
+		idBody := map[string]interface{}{"userIds": []string{state.ID.ValueString()}}
 		if oldIDState == "N" && newIDState == "Y" {
-			_, err := r.client.Post(ctx, "/iam/v1/user/id/create", idBody)
+			_, err := r.client.Post(ctx, "/iam/v1/user/id/grant", idBody)
 			if err != nil {
 				if apiErr, ok := err.(*APIError); ok {
 					resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
@@ -261,20 +254,21 @@ func (r *UserResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 
-	body := map[string]interface{}{"userId": state.ID.ValueString()}
+	revokeBody := map[string]interface{}{"userIds": []string{state.ID.ValueString()}}
+	deleteBody := map[string]interface{}{"userId": state.ID.ValueString()}
 
 	// Revoke ID first (ignore "already revoked" errors)
-	_, revokeErr := r.client.Post(ctx, "/iam/v1/user/id/revoke", body)
+	_, revokeErr := r.client.Post(ctx, "/iam/v1/user/id/revoke", revokeBody)
 	if revokeErr != nil {
 		if apiErr, ok := revokeErr.(*APIError); ok {
-			if apiErr.Code != "E1040606" {
+			if apiErr.Code != "E1040606" && apiErr.Code != "E1040112" {
 				resp.Diagnostics.AddWarning("사용자 ID 회수 중 오류", apiErr.Error())
 			}
 		}
 	}
 
 	// Delete user
-	_, err := r.client.Post(ctx, "/iam/v1/user/delete", body)
+	_, err := r.client.Post(ctx, "/iam/v1/user/delete", deleteBody)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
 			resp.Diagnostics.Append(MapAPIErrorToDiagnostics(apiErr)...)
