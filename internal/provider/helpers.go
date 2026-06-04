@@ -19,7 +19,8 @@ func extractStringSet(ctx context.Context, set types.Set) []string {
 // buildStringSet creates a types.Set from a []string.
 func buildStringSet(ctx context.Context, items []string) types.Set {
 	if len(items) == 0 {
-		return types.SetNull(types.StringType)
+		set, _ := types.SetValueFrom(ctx, types.StringType, []string{})
+		return set
 	}
 	elems := make([]types.String, len(items))
 	for i, item := range items {
