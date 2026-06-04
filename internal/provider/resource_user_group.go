@@ -66,11 +66,13 @@ func (r *UserGroupResource) Schema(ctx context.Context, req resource.SchemaReque
 			"officer_ids": schema.SetAttribute{
 				Description: "그룹 담당자 사용자 ID 목록",
 				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
 			},
 			"saas_ids": schema.SetAttribute{
 				Description: "그룹에 연결된 SaaS ID 목록",
 				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
 			},
 		},
@@ -246,6 +248,10 @@ func (r *UserGroupResource) Read(ctx context.Context, req resource.ReadRequest, 
 			state.UserIDs = buildStringSet(ctx, userIDs)
 			state.OfficerIDs = buildStringSet(ctx, officerIDs)
 		}
+	} else {
+		// API 실패 시 빈 Set으로 설정 (불필요한 drift 방지)
+		state.UserIDs = buildStringSet(ctx, []string{})
+		state.OfficerIDs = buildStringSet(ctx, []string{})
 	}
 
 	// Read saas list
