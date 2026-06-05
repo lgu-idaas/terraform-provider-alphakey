@@ -63,5 +63,22 @@ func HandleNotFound(err error) bool {
 		return false
 	}
 
-	return apiErr.HTTPStatus == 404
+	// HTTP 404 or AlphaKey-specific "not found" error codes
+	if apiErr.HTTPStatus == 404 {
+		return true
+	}
+
+	notFoundCodes := []string{
+		"E1040105", // userId가 존재하지 않습니다
+		"E1030105", // saasId와 일치하는 정보를 찾을 수 없습니다
+		"E1040607", // 사용자 그룹이 존재하지 않습니다
+		"E4000401", // 요청한 리소스를 찾을 수 없습니다
+	}
+	for _, code := range notFoundCodes {
+		if apiErr.Code == code {
+			return true
+		}
+	}
+
+	return false
 }
