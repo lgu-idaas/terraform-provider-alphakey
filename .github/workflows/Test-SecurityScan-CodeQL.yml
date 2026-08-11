@@ -27,6 +27,7 @@ on:
       - dev
       - main
       - feature/**
+  workflow_dispatch:
 
 jobs:
   code-scan:
