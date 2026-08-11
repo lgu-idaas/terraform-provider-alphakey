@@ -1,0 +1,9 @@
+# This file is intentionally removed. Use Test-SecurityScan-CodeQL.yml instead.
+# Keeping minimal valid workflow to prevent GitHub parsing errors before deletion.
+name: "Deprecated - Do Not Use"
+on: workflow_dispatch
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This workflow is deprecated. Use Test-SecurityScan-CodeQL.yml"
