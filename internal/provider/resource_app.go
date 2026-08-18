@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -96,7 +97,7 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 	}
 
 	body := map[string]interface{}{
-		"lgSaasId": plan.LgSaasID.ValueString(),
+		"lgSaasIds": []string{plan.LgSaasID.ValueString()},
 	}
 
 	apiResp, err := r.client.Post(ctx, "/iam/v1/service/create", body)
@@ -109,19 +110,31 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
+	// 응답: {"list": [{"saasId": "...", ...}]}
 	var respData struct {
-		SaasID string `json:"saasId"`
+		List []struct {
+			SaasID         string `json:"saasId"`
+			SaasName       string `json:"saasName"`
+			CategoryName   string `json:"categoryName"`
+			LinkYn         string `json:"linkYn"`
+			LinkMethodName string `json:"linkMethodName"`
+		} `json:"list"`
 	}
 	if err := json.Unmarshal(apiResp.Data, &respData); err != nil {
-		resp.Diagnostics.AddError("응답 파싱 실패", "앱 생성 응답에서 saasId를 파싱할 수 없습니다: "+err.Error())
+		resp.Diagnostics.AddError("응답 파싱 실패", "앱 생성 응답을 파싱할 수 없습니다: "+err.Error())
+		return
+	}
+	if len(respData.List) == 0 {
+		resp.Diagnostics.AddError("앱 생성 실패", "응답에 생성된 앱 정보가 없습니다.")
 		return
 	}
 
-	plan.ID = types.StringValue(respData.SaasID)
-	plan.SaasName = types.StringValue("")
-	plan.CategoryName = types.StringValue("")
-	plan.LinkYn = types.StringValue("")
-	plan.LinkMethodName = types.StringValue("")
+	app := respData.List[0]
+	plan.ID = types.StringValue(app.SaasID)
+	plan.SaasName = types.StringValue(app.SaasName)
+	plan.CategoryName = types.StringValue(app.CategoryName)
+	plan.LinkYn = types.StringValue(app.LinkYn)
+	plan.LinkMethodName = types.StringValue(app.LinkMethodName)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -137,7 +150,7 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		"saasId": state.ID.ValueString(),
 	}
 
-	apiResp, err := r.client.Post(ctx, "/iam/v1/service/info/basic/detail", body)
+	apiResp, err := r.client.Post(ctx, "/iam/v1/service/basic/detail", body)
 	if err != nil {
 		if HandleNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -153,7 +166,7 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 
 	var respData struct {
 		SaasID         string `json:"saasId"`
-		LgSaasID       string `json:"lgSaasId"`
+		SaasAppID      string `json:"saasAppId"`
 		SaasName       string `json:"saasName"`
 		CategoryName   string `json:"categoryName"`
 		LinkYn         string `json:"linkYn"`
@@ -165,7 +178,9 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	}
 
 	state.ID = types.StringValue(respData.SaasID)
-	state.LgSaasID = types.StringValue(respData.LgSaasID)
+	if respData.SaasAppID != "" && respData.SaasAppID != "0" {
+		state.LgSaasID = types.StringValue(respData.SaasAppID)
+	}
 	state.SaasName = types.StringValue(respData.SaasName)
 	state.CategoryName = types.StringValue(respData.CategoryName)
 	state.LinkYn = types.StringValue(respData.LinkYn)
@@ -175,6 +190,8 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 }
 
 func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	// lg_saas_id 변경 시 RequiresReplace이므로 Update는 호출되지 않음
+	_ = fmt.Sprintf("no-op")
 }
 
 func (r *AppResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
