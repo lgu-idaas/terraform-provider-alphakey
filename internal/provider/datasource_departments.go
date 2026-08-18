@@ -85,7 +85,7 @@ func (d *DepartmentsDataSource) Read(ctx context.Context, req datasource.ReadReq
 		body["keyword"] = state.Keyword.ValueString()
 	}
 
-	apiResp, err := d.client.Post(ctx, "/iam/v1/user/dept/list", body)
+	apiResp, err := d.client.Post(ctx, "/iam/v1/user/dept/tree/list", body)
 	if err != nil {
 		resp.Diagnostics.AddError("부서 목록 조회 실패", err.Error())
 		return
