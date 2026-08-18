@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -104,16 +105,15 @@ func (r *AppGroupResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	var respData struct {
-		SaasGroupID string `json:"saasGroupId"`
-	}
-	if err := json.Unmarshal(apiResp.Data, &respData); err != nil {
-		resp.Diagnostics.AddError("응답 파싱 실패", "앱 그룹 생성 응답에서 saasGroupId를 파싱할 수 없습니다: "+err.Error())
+	// saasGroupId가 number 또는 string으로 올 수 있으므로 interface{}로 받아서 처리
+	var respMap map[string]interface{}
+	if err := json.Unmarshal(apiResp.Data, &respMap); err != nil {
+		resp.Diagnostics.AddError("응답 파싱 실패", "앱 그룹 생성 응답을 파싱할 수 없습니다: "+err.Error())
 		return
 	}
+	groupID := fmt.Sprintf("%v", respMap["saasGroupId"])
 
-	plan.ID = types.StringValue(respData.SaasGroupID)
-	groupID := respData.SaasGroupID
+	plan.ID = types.StringValue(groupID)
 
 	// Add officers
 	officerIDs := extractStringSet(ctx, plan.OfficerIDs)
@@ -179,28 +179,32 @@ func (r *AppGroupResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	var respData struct {
-		SaasGroupID   string `json:"saasGroupId"`
-		SaasGroupName string `json:"saasGroupName"`
-		SaasGroupDesc string `json:"saasGroupDesc"`
-		Officers      []struct {
-			UserID string `json:"userId"`
-		} `json:"officers"`
-	}
-	if err := json.Unmarshal(apiResp.Data, &respData); err != nil {
+	var respMap map[string]interface{}
+	if err := json.Unmarshal(apiResp.Data, &respMap); err != nil {
 		resp.Diagnostics.AddError("응답 파싱 실패", "앱 그룹 조회 응답을 파싱할 수 없습니다: "+err.Error())
 		return
 	}
 
-	state.ID = types.StringValue(respData.SaasGroupID)
-	state.SaasGroupName = types.StringValue(respData.SaasGroupName)
-	state.SaasGroupDesc = types.StringValue(respData.SaasGroupDesc)
-
-	var officerIDs []string
-	for _, o := range respData.Officers {
-		officerIDs = append(officerIDs, o.UserID)
+	state.ID = types.StringValue(fmt.Sprintf("%v", respMap["saasGroupId"]))
+	if name, ok := respMap["saasGroupName"].(string); ok {
+		state.SaasGroupName = types.StringValue(name)
 	}
-	state.OfficerIDs = buildStringSet(ctx, officerIDs)
+	if desc, ok := respMap["saasGroupDesc"].(string); ok {
+		state.SaasGroupDesc = types.StringValue(desc)
+	}
+
+	// Officers
+	if officers, ok := respMap["officers"].([]interface{}); ok {
+		var officerIDs []string
+		for _, o := range officers {
+			if om, ok := o.(map[string]interface{}); ok {
+				if uid, ok := om["userId"].(string); ok {
+					officerIDs = append(officerIDs, uid)
+				}
+			}
+		}
+		state.OfficerIDs = buildStringSet(ctx, officerIDs)
+	}
 
 	// Read saas list
 	saasResp, err := r.client.Post(ctx, "/iam/v1/service/group/saas/list", body)
