@@ -180,6 +180,17 @@ func (r *UserGroupResource) Create(ctx context.Context, req resource.CreateReque
 		}
 	}
 
+	// Computed 필드가 unknown으로 남지 않도록 처리
+	if plan.UserIDs.IsUnknown() {
+		plan.UserIDs, _ = types.SetValueFrom(ctx, types.StringType, []string{})
+	}
+	if plan.OfficerIDs.IsUnknown() || plan.OfficerIDs.IsNull() {
+		plan.OfficerIDs, _ = types.SetValueFrom(ctx, types.StringType, []string{})
+	}
+	if plan.SaasIDs.IsUnknown() || plan.SaasIDs.IsNull() {
+		plan.SaasIDs, _ = types.SetValueFrom(ctx, types.StringType, []string{})
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

@@ -120,22 +120,22 @@ func (d *UsersDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	}
 
 	var data struct {
-		List []struct {
+		Users []struct {
 			UserID        string `json:"userId"`
 			UserName      string `json:"userName"`
 			DeptName      string `json:"deptName"`
 			Position      string `json:"position"`
 			WorkStateCode string `json:"workStateCode"`
 			UserStateCode string `json:"userStateCode"`
-		} `json:"list"`
+		} `json:"users"`
 	}
 	if err := json.Unmarshal(apiResp.Data, &data); err != nil {
 		resp.Diagnostics.AddError("응답 파싱 실패", err.Error())
 		return
 	}
 
-	state.Users = make([]UserItemModel, len(data.List))
-	for i, u := range data.List {
+	state.Users = make([]UserItemModel, len(data.Users))
+	for i, u := range data.Users {
 		state.Users[i] = UserItemModel{
 			UserID:        types.StringValue(u.UserID),
 			UserName:      types.StringValue(u.UserName),
