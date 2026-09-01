@@ -256,12 +256,14 @@ func (r *UserGroupResource) Read(ctx context.Context, req resource.ReadRequest, 
 					userIDs = append(userIDs, m.UserID)
 				}
 			}
-			state.UserIDs = buildStringSet(ctx, userIDs)
+			// user_ids가 기존 state에서 null이면 null 유지 (Optional-only 필드)
+			if !state.UserIDs.IsNull() || len(userIDs) > 0 {
+				state.UserIDs = buildStringSet(ctx, userIDs)
+			}
 			state.OfficerIDs = buildStringSet(ctx, officerIDs)
 		}
 	} else {
-		// API 실패 시 빈 Set으로 설정 (불필요한 drift 방지)
-		state.UserIDs = buildStringSet(ctx, []string{})
+		// API 실패 시: user_ids는 기존 state 유지, computed 필드만 빈 Set
 		state.OfficerIDs = buildStringSet(ctx, []string{})
 	}
 
