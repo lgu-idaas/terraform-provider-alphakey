@@ -165,7 +165,7 @@ func (r *AppGroupResource) Read(ctx context.Context, req resource.ReadRequest, r
 		"saasGroupId": state.ID.ValueString(),
 	}
 
-	apiResp, err := r.client.Post(ctx, "/iam/v1/service/group/detail", body)
+	apiResp, err := r.client.Post(ctx, "/iam/v1/service/group/basic/detail", body)
 	if err != nil {
 		if HandleNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -185,7 +185,7 @@ func (r *AppGroupResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	state.ID = types.StringValue(fmt.Sprintf("%v", respMap["saasGroupId"]))
+	// API 응답에 saasGroupId가 포함되지 않으므로 기존 state ID 유지
 	if name, ok := respMap["saasGroupName"].(string); ok {
 		state.SaasGroupName = types.StringValue(name)
 	}
