@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -195,10 +196,14 @@ func (r *AppContractResource) Read(ctx context.Context, req resource.ReadRequest
 
 	state.ID = types.StringValue(respData.SaasID)
 	state.SaasID = types.StringValue(respData.SaasID)
-	state.UserID = types.StringValue(respData.UserID)
+	// user_id: API가 빈 값을 리턴하면 기존 state 유지 (Required 필드라 null이면 안 됨)
+	if respData.UserID != "" {
+		state.UserID = types.StringValue(respData.UserID)
+	}
 	state.SaasFreeYn = types.StringValue(respData.SaasFreeYn)
-	state.SaasStartDate = types.StringValue(respData.SaasStartDate)
-	state.SaasEndDate = types.StringValue(respData.SaasEndDate)
+	// 날짜: API가 하이픈(2026-01-01)으로 리턴하므로 점(2026.01.01)으로 변환
+	state.SaasStartDate = types.StringValue(strings.ReplaceAll(respData.SaasStartDate, "-", "."))
+	state.SaasEndDate = types.StringValue(strings.ReplaceAll(respData.SaasEndDate, "-", "."))
 	state.EndAnnounceYn = types.StringValue(respData.EndAnnounceYn)
 
 	if respData.Price != "" {
