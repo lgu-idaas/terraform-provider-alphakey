@@ -105,7 +105,10 @@ func (d *UsersDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	body := map[string]interface{}{}
+	body := map[string]interface{}{
+		"pageNumber": 1,
+		"pageCount":  10000,
+	}
 	if !state.Keyword.IsNull() && !state.Keyword.IsUnknown() {
 		body["keyword"] = state.Keyword.ValueString()
 	}

@@ -61,6 +61,7 @@ func (r *UserGroupResource) Schema(ctx context.Context, req resource.SchemaReque
 			"user_ids": schema.SetAttribute{
 				Description: "그룹 멤버 사용자 ID 목록",
 				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
 			},
 			"officer_ids": schema.SetAttribute{
