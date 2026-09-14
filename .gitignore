@@ -19,7 +19,15 @@ cover.out
 .terraform/
 terraform.tfstate*
 .terraform.lock.hcl
+*.tfvars
 
 # Build artifacts
 dist/
 reference/
+
+# GoReleaser
+/dist/
+
+# Binaries
+terraform-provider-alphakey
+terraform-provider-alphakey_*
