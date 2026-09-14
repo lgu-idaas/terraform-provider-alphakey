@@ -1,0 +1,61 @@
+# ====================================================================================== #
+#
+# Workflow : 소스 코드 정적 분석 - CodeQL
+#
+# Workflow 설명 :
+#   - GitHub CodeQL의 Autobuild를 통해 소스 코드를 빌드 후 정적 분석을 실행
+#   - 실행 결과는 Repository의 Security 탭에 반영
+#
+# Workflow 유의사항 :
+#   - Autobuild가 실패 시 성공이 가능하도록 소스 코드 수정을 해야하며, 수정이 어려울 경우 매뉴얼 빌드 단계로 대체해야 함
+#   - Repository 내 존재하는 개발 언어 중 Matrix에서 누락된 개발 언어가 있을 경우 업데이트 필요
+#        * CodeQL 지원 언어 [ 'cpp', 'csharp', 'go', 'java', 'javascript', 'python', 'ruby' ]
+#            (Typesript는 javascript를 사용)
+#        * CodeQL 지원 정보 : https://git.io/codeql-language-support
+#
+#  Workflow 상세 가이드 :
+#    - https://lgu-cto.atlassian.net/wiki/spaces/CLOUDASSET/pages/37479319390/AWS-EKS+CI+CD+Workflow
+#
+# 버전 : v1.0
+#
+# ====================================================================================== #
+name: Code Security Scan
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+      - feature/**
+  workflow_dispatch:
+
+jobs:
+  code-scan:
+    name: TEST - Static Code Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+
+    steps:
+      - name: 소스 코드 Checkout
+        uses: actions/checkout@v4
+
+      - name: CodeQL 설정
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: CodeQL 정적 분석 수행
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -1,0 +1,81 @@
+name: Push Diff Teams Notification
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Generate diff and notify Teams
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          PUSHER="${{ github.actor }}"
+          MSG=$(echo '${{ github.event.head_commit.message }}' | head -1)
+          SHA="${{ github.sha }}"
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+          URL="https://github.com/$REPO/commit/$SHA"
+
+          DIFF=$(git diff HEAD~1 HEAD -- . ':(exclude).github' 2>/dev/null | head -200 || echo "(initial commit)")
+          DIFF_ESCAPED=$(echo "$DIFF" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g' | cut -c1-3000)
+
+          curl -s -X POST "$TEAMS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"type\": \"message\",
+              \"attachments\": [{
+                \"contentType\": \"application/vnd.microsoft.card.adaptive\",
+                \"content\": {
+                  \"\$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",
+                  \"type\": \"AdaptiveCard\",
+                  \"version\": \"1.4\",
+                  \"body\": [
+                    {
+                      \"type\": \"TextBlock\",
+                      \"size\": \"medium\",
+                      \"weight\": \"bolder\",
+                      \"text\": \"🔀 Push: $REPO\"
+                    },
+                    {
+                      \"type\": \"FactSet\",
+                      \"facts\": [
+                        {\"title\": \"Branch\", \"value\": \"$BRANCH\"},
+                        {\"title\": \"Pusher\", \"value\": \"$PUSHER\"},
+                        {\"title\": \"Commit\", \"value\": \"$SHORT_SHA - $MSG\"}
+                      ]
+                    },
+                    {
+                      \"type\": \"TextBlock\",
+                      \"text\": \"Diff (max 200 lines)\",
+                      \"weight\": \"bolder\",
+                      \"spacing\": \"medium\"
+                    },
+                    {
+                      \"type\": \"TextBlock\",
+                      \"text\": \"$DIFF_ESCAPED\",
+                      \"wrap\": true,
+                      \"fontType\": \"monospace\",
+                      \"size\": \"small\",
+                      \"maxLines\": 30
+                    }
+                  ],
+                  \"actions\": [
+                    {
+                      \"type\": \"Action.OpenUrl\",
+                      \"title\": \"View Commit\",
+                      \"url\": \"$URL\"
+                    }
+                  ]
+                }
+              }]
+            }"

@@ -1,0 +1,33 @@
+# Binary
+terraform-provider-alphakey
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.test
+cover.out
+
+# Terraform
+.terraform/
+terraform.tfstate*
+.terraform.lock.hcl
+*.tfvars
+
+# Build artifacts
+dist/
+reference/
+
+# GoReleaser
+/dist/
+
+# Binaries
+terraform-provider-alphakey
+terraform-provider-alphakey_*
